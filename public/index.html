@@ -1,0 +1,39 @@
+<!doctype html>
+<html lang="ru">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>ИИ-помощник Матрены Семеновны</title>
+  <meta name="description" content="Цифровой двойник на DeepSeek для проекта Учительская 2.0" />
+  <link rel="stylesheet" href="/styles.css" />
+</head>
+<body>
+  <main class="page">
+    <section class="hero">
+      <div class="badge">Учительская 2.0</div>
+      <h1>ИИ-помощник Матрены Семеновны</h1>
+      <p>
+        Я ИИ-помощник, настроенный в стиле Матрены Семеновны. Могу помочь с ИИ,
+        сайтами, чат-ботами, презентациями и школьными проектами.
+      </p>
+    </section>
+
+    <section class="chat-card" aria-label="Чат с ИИ-помощником">
+      <div id="messages" class="messages">
+        <div class="message bot">
+          Здравствуйте! Задайте вопрос по проекту «Учительская 2.0», ИИ-инструментам,
+          сайтам или школьным проектам.
+        </div>
+      </div>
+
+      <form id="chatForm" class="chat-form">
+        <textarea id="messageInput" rows="2" placeholder="Напишите вопрос..." required></textarea>
+        <button id="sendButton" type="submit">Отправить</button>
+      </form>
+      <p class="notice">Это ИИ-помощник, а не настоящий человек.</p>
+    </section>
+  </main>
+
+  <script src="/app.js"></script>
+</body>
+</html>

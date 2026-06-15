@@ -1,0 +1,25 @@
+services:
+  - type: web
+    name: openrouter-digital-double
+    env: node
+    plan: free
+    buildCommand: npm install
+    startCommand: npm start
+    autoDeploy: true
+    envVars:
+      - key: OPENROUTER_API_KEY
+        sync: false
+      - key: OPENROUTER_MODEL
+        value: deepseek/deepseek-v4-flash:free
+      - key: OPENROUTER_BASE_URL
+        value: https://openrouter.ai/api/v1
+      - key: OPENROUTER_SITE_URL
+        value: https://render.com
+      - key: OPENROUTER_APP_NAME
+        value: Учительская 2.0 — цифровой двойник
+      - key: ALLOWED_ORIGINS
+        value: "*"
+      - key: TEMPERATURE
+        value: "0.7"
+      - key: MAX_TOKENS
+        value: "900"
