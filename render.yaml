@@ -1,0 +1,21 @@
+services:
+  - type: web
+    name: deepseek-digital-double
+    env: node
+    plan: free
+    buildCommand: npm install
+    startCommand: npm start
+    autoDeploy: true
+    envVars:
+      - key: DEEPSEEK_API_KEY
+        sync: false
+      - key: DEEPSEEK_MODEL
+        value: deepseek-v4-flash
+      - key: DEEPSEEK_BASE_URL
+        value: https://api.deepseek.com
+      - key: ALLOWED_ORIGINS
+        value: "*"
+      - key: TEMPERATURE
+        value: "0.7"
+      - key: MAX_TOKENS
+        value: "900"
