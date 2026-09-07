@@ -1,11 +1,11 @@
 {
   "name": "openrouter-digital-double",
-  "version": "1.1.0",
-  "description": "Цифровой двойник для Render на OpenRouter",
+  "version": "1.2.0",
+  "description": "Цифровой помощник Матрены Семёновны на OpenRouter",
   "type": "module",
   "scripts": {
-    "start": "node server.js",
-    "dev": "node server.js"
+    "start": "node server-router.js",
+    "dev": "node server-router.js"
   },
   "engines": {
     "node": ">=18"
