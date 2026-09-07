@@ -7,272 +7,160 @@ dotenv.config();
 const app = express();
 const PORT = process.env.PORT || 10000;
 const OPENROUTER_BASE_URL = process.env.OPENROUTER_BASE_URL || "https://openrouter.ai/api/v1";
-const MODEL = process.env.OPENROUTER_MODEL || "deepseek/deepseek-v4-flash:free";
-const MAX_HISTORY_MESSAGES = Number(process.env.MAX_HISTORY_MESSAGES || 12);
+const PRIMARY_MODEL = process.env.OPENROUTER_MODEL || "openrouter/free";
+const FALLBACK_MODEL = "openrouter/free";
+const MAX_HISTORY_MESSAGES = Number(process.env.MAX_HISTORY_MESSAGES || 10);
+const MAX_TOKENS = Number(process.env.MAX_TOKENS || 700);
+const TEMPERATURE = Number(process.env.TEMPERATURE || 0.6);
 
-const allowedOrigins = (process.env.ALLOWED_ORIGINS || "*")
-  .split(",")
-  .map((origin) => origin.trim())
-  .filter(Boolean);
-
-app.use(
-  cors({
-    origin(origin, callback) {
-      if (!origin || allowedOrigins.includes("*") || allowedOrigins.includes(origin)) {
-        callback(null, true);
-        return;
-      }
-      callback(new Error("CORS: origin is not allowed"));
-    }
-  })
-);
-
+app.use(cors({ origin: true }));
 app.use(express.json({ limit: "1mb" }));
 app.use(express.static("public"));
 
-const DEFAULT_SYSTEM_PROMPT = `
-Ты — цифровой помощник Сидоровой Матрены Семеновны, педагога-наставника по направлению «Наставник одарённых» в проекте «Учительская 2.0».
-
-Твоя задача — вежливо и понятно отвечать ученикам, родителям и педагогам по вопросам подготовки к олимпиадам, конкурсам, НПК, исследовательским и проектным работам.
-
-Важно: ты не выдаёшь себя за реального человека. В начале общения или при необходимости говори:
-«Я цифровой помощник Сидоровой Матрены Семеновны и помогу сориентироваться по вопросам подготовки и сопровождения одарённых учащихся».
-
-Основная роль:
-— помогать ученикам выбрать тему проекта или исследования;
-— объяснять, как подготовиться к олимпиаде, конкурсу или НПК;
-— подсказывать этапы работы над проектом;
-— помогать составить план подготовки;
-— объяснять, как оформить исследовательскую работу;
-— помогать подготовить речь для защиты;
-— давать идеи для олимпиадных тренировок;
-— подсказывать, какие материалы можно добавить на страницу наставника;
-— направлять пользователя на консультацию к Сидоровой Матрене Семеновне.
-
-Информация о наставнике:
-ФИО: Сидорова Матрена Семеновна.
-Направление: наставник одарённых учащихся.
-Педагогическая суперсила: ведёт олимпиадников, готовит к 100-балльному ЕГЭ, разбирает задания повышенной сложности, помогает готовиться к НПК и конкурсам.
-Кому помогает: ученикам, которые хотят участвовать в олимпиадах, конкурсах, НПК и проектной деятельности; педагогам, сопровождающим одарённых детей; родителям, которые хотят понять, как поддержать ребёнка.
-
-Стиль общения:
-— доброжелательный;
-— спокойный;
-— уверенный;
-— понятный для школьников;
-— без сложных терминов, если пользователь не просит подробно;
-— поддерживающий и мотивирующий;
-— не слишком длинные ответы;
-— в конце ответа по возможности предлагай следующий шаг.
-
-Если ученик пишет: «Я хочу участвовать в олимпиаде», задай уточняющие вопросы:
-
-1. По какому предмету?
-2. В каком классе ученик?
-3. Какая цель: попробовать силы, занять призовое место или подготовиться к муниципальному/региональному этапу?
-4. Сколько времени есть на подготовку?
-
-Если ученик пишет: «Помогите выбрать тему проекта», предложи 5–7 тем и попроси выбрать самую интересную. Темы должны быть реальные, школьные, посильные и подходящие для НПК.
-
-Если пользователь просит план подготовки, составь его по шагам:
-
-1. Определить цель.
-2. Проверить стартовый уровень.
-3. Подобрать материалы.
-4. Составить график подготовки.
-5. Решать задания повышенной сложности.
-6. Разбирать ошибки.
-7. Провести пробную защиту или тренировочную олимпиаду.
-8. Записаться на консультацию к наставнику.
-
-Если пользователь просит подготовить исследовательскую работу, объясни структуру:
-— тема;
-— актуальность;
-— цель;
-— задачи;
-— объект и предмет исследования;
-— гипотеза;
-— методы исследования;
-— основная часть;
-— результаты;
-— вывод;
-— список источников;
-— приложение.
-
-Если вопрос касается точного расписания, личных контактов, записи на консультацию или решений администрации, не придумывай информацию. Ответь:
-«Эту информацию лучше уточнить у Сидоровой Матрены Семеновны или у ответственного педагога проекта. Я могу помочь подготовить сообщение для записи на консультацию».
-
-Запрещено:
-— обещать гарантированную победу в олимпиаде или конкурсе;
-— придумывать несуществующие достижения наставника;
-— давать ответы на олимпиады, контрольные и экзамены как готовую шпаргалку;
-— писать грубо или резко;
-— отвечать от первого лица так, будто ты сама Сидорова Матрена Семеновна;
-— раскрывать личные данные учеников;
-— придумывать расписание консультаций, если оно не указано.
-
-Разрешено:
-— помогать понять тему;
-— объяснять задания;
-— давать тренировочные примеры;
-— составлять планы;
-— помогать оформить проект;
-— помогать подготовить речь;
-— мотивировать ученика;
-— предлагать записаться на консультацию.
-
-Пример приветствия:
-«Здравствуйте! Я цифровой помощник Сидоровой Матрены Семеновны, наставника одарённых учащихся. Помогу вам разобраться с олимпиадами, конкурсами, НПК, исследовательскими и проектными работами. Напишите, пожалуйста, чем я могу помочь: выбрать тему, составить план подготовки, оформить работу или подготовиться к защите?»
-
-Пример ответа ученику:
-«Отлично, что ты хочешь участвовать в олимпиаде! Для начала нужно понять предмет, класс и уровень подготовки. Напиши, пожалуйста: по какому предмету олимпиада, в каком ты классе и сколько времени осталось до участия. После этого я помогу составить план подготовки».
-
-Пример ответа родителю:
-«Здравствуйте! Если ребёнок интересуется олимпиадами, конкурсами или исследовательской работой, важно сначала определить его сильные стороны и интересы. Можно начать с небольшой диагностики: какие предметы нравятся, какие задания получаются лучше, есть ли опыт участия в конкурсах. После этого можно подобрать направление и составить план подготовки».
-
-Пример ответа педагогу:
-«Здравствуйте! Для сопровождения одарённого ученика можно начать с выбора направления, постановки цели и составления индивидуального маршрута. Я могу помочь подготовить структуру проекта, список этапов, план консультаций и пример критериев оценки результата».
-
-В конце большинства ответов добавляй один полезный следующий шаг:
-«Могу помочь составить план подготовки».
-«Могу предложить темы для НПК».
-«Могу подготовить текст для записи на консультацию».
-«Могу помочь оформить проектную работу».`.trim();
-
-const SYSTEM_PROMPT = process.env.SYSTEM_PROMPT || DEFAULT_SYSTEM_PROMPT;
+const SYSTEM_PROMPT = `
+Ты — цифровой помощник Сидоровой Матрены Семеновны, наставника одарённых учащихся.
+Ты помогаешь ученикам, родителям и педагогам по вопросам олимпиад, конкурсов, НПК, исследовательских и проектных работ.
+Всегда ясно говори, что ты цифровой помощник, а не сама Матрена Семеновна.
+Отвечай по-русски, доброжелательно, понятно и по делу.
+Если данных мало — задай 2–4 коротких уточняющих вопроса.
+Не придумывай расписание, контакты, достижения или личные данные.
+Не обещай гарантированную победу и не выдавай готовые ответы для текущих экзаменов или олимпиад.
+`.trim();
 
 function normalizeHistory(history) {
   if (!Array.isArray(history)) return [];
-
   return history
     .filter((item) => item && typeof item.content === "string")
     .map((item) => ({
       role: item.role === "assistant" ? "assistant" : "user",
-      content: item.content.slice(0, 4000)
+      content: item.content.slice(0, 3500)
     }))
     .slice(-MAX_HISTORY_MESSAGES);
 }
 
-function isValidHttpUrl(value) {
-  try {
-    const url = new URL(value);
-    return url.protocol === "http:" || url.protocol === "https:";
-  } catch {
-    return false;
-  }
-}
-
-function toSafeHeaderValue(value) {
-  if (!value) return "";
-  // HTTP-заголовки должны быть безопасными. Русские буквы и длинное тире убираем.
-  return String(value)
-    .replace(/[^\x20-\x7E]/g, "")
-    .replace(/[\r\n]/g, "")
-    .trim()
-    .slice(0, 120);
-}
-
-function buildOpenRouterHeaders() {
+function buildHeaders() {
   const headers = {
-    "Authorization": `Bearer ${process.env.OPENROUTER_API_KEY}`,
-    "Content-Type": "application/json"
+    Authorization: `Bearer ${process.env.OPENROUTER_API_KEY || ""}`,
+    "Content-Type": "application/json",
+    "X-OpenRouter-Title": "Matrena AI Assistant"
   };
-
   const siteUrl = process.env.OPENROUTER_SITE_URL;
-  if (siteUrl && isValidHttpUrl(siteUrl)) {
-    headers["HTTP-Referer"] = siteUrl;
-  }
-
-  const title = toSafeHeaderValue(process.env.OPENROUTER_APP_NAME || "Uchitelskaya 2.0 Digital Double");
-  if (title) {
-    headers["X-OpenRouter-Title"] = title;
-  }
-
+  if (siteUrl && /^https?:\/\//i.test(siteUrl)) headers["HTTP-Referer"] = siteUrl;
   return headers;
 }
 
-function explainOpenRouterStatus(status, message) {
-  const prefix = `OpenRouter ${status}: ${message || "без подробного описания"}`;
+async function callModel(model, messages) {
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), 12000);
+  try {
+    const response = await fetch(`${OPENROUTER_BASE_URL}/chat/completions`, {
+      method: "POST",
+      headers: buildHeaders(),
+      signal: controller.signal,
+      body: JSON.stringify({
+        model,
+        messages,
+        temperature: TEMPERATURE,
+        max_tokens: MAX_TOKENS,
+        stream: false,
+        provider: { allow_fallbacks: true }
+      })
+    });
+    const data = await response.json().catch(() => ({}));
+    return { response, data };
+  } finally {
+    clearTimeout(timeout);
+  }
+}
 
-  if (status === 400) return `${prefix}. Проверьте название модели OPENROUTER_MODEL и формат запроса.`;
-  if (status === 401) return `${prefix}. Неверный API-ключ или ключ не сохранён в Render.`;
-  if (status === 402) return `${prefix}. Недостаточно credits/баланса. Даже free-модели могут не работать при отрицательном балансе.`;
-  if (status === 403) return `${prefix}. Нет доступа: проверьте права ключа, модель и настройки аккаунта.`;
-  if (status === 429) return `${prefix}. Превышен лимит запросов. Для :free моделей есть дневные/минутные лимиты.`;
-  if (status === 502 || status === 503) return `${prefix}. Провайдер модели временно недоступен. Попробуйте другую модель.`;
+function extractGrade(text) {
+  const m = String(text).match(/\b([1-9]|10|11)\s*(?:класс|класса|кл\.?)/i);
+  return m ? `${m[1]} класс` : "школьный уровень";
+}
 
-  return prefix;
+function localFallbackReply(message) {
+  const text = String(message || "").toLowerCase();
+  const grade = extractGrade(message);
+
+  if (/тема|темы|нпк|проект/.test(text) && /(выб|предлож|придум|иде)/.test(text)) {
+    return `Я цифровой помощник Матрены Семеновны. Предлагаю 6 реальных тем для ${grade}:\n\n1. «Как цифровые привычки влияют на учебную концентрацию школьников».\n2. «Какие местные растения лучше всего подходят для школьного мини-гербария и почему».\n3. «Как меняется качество сна у школьников в зависимости от экранного времени».\n4. «История моего села в семейных фотографиях и воспоминаниях».\n5. «Можно ли уменьшить количество бытовых отходов в классе за одну неделю».\n6. «Какие способы запоминания слов работают лучше: карточки, рисунки или ассоциации».\n\nДля НПК лучше выбрать тему, где можно собрать собственные данные: опрос, наблюдение, небольшой эксперимент или интервью. Напишите интересы ученика — я сузю список до 3 сильных тем.`;
+  }
+
+  if (/олимпиад/.test(text) && /(план|подготов|готов)/.test(text)) {
+    return `Я цифровой помощник Матрены Семеновны. Базовый план подготовки к олимпиаде:\n\n1. Определить предмет, класс и этап олимпиады.\n2. Решить 1 диагностический вариант без подсказок.\n3. Разделить ошибки на темы.\n4. Выбрать 2–3 слабых блока и повторить теорию.\n5. Ежедневно решать 3–5 задач повышенной сложности.\n6. Вести журнал ошибок: задача → ошибка → правильный ход.\n7. Раз в неделю проходить тренировочный вариант на время.\n8. За 2–3 дня до участия снизить нагрузку и повторить типовые приёмы.\n\nНапишите предмет и класс — составлю конкретный план на неделю или месяц.`;
+  }
+
+  if (/реч|защит|выступ/.test(text)) {
+    return `Я цифровой помощник Матрены Семеновны. Каркас сильной речи для защиты:\n\n«Здравствуйте. Тема моей работы — … Я выбрал её, потому что … Цель работы — … Для достижения цели я поставил задачи: … В ходе работы использовал методы: … Главный результат — … Практическая польза моей работы заключается в … Спасибо за внимание, готов ответить на вопросы».\n\nОптимальная структура: проблема → цель → 3–4 задачи → что сделал → главный результат → польза.\n\nПришлите тему проекта — я превращу этот каркас в готовую речь на 2–3 минуты.`;
+  }
+
+  if (/жюри|вопрос/.test(text)) {
+    return `Я цифровой помощник Матрены Семеновны. Вот 7 типичных вопросов жюри:\n\n1. Почему вы выбрали именно эту тему?\n2. В чём новизна вашей работы?\n3. Как вы проверяли гипотезу?\n4. Почему выбрали именно эти методы?\n5. Что оказалось самым трудным?\n6. Где можно применить результат на практике?\n7. Что бы вы изменили, если бы продолжили исследование?\n\nГлавное правило ответа: сначала короткий вывод, потом одно доказательство из своей работы. Напишите тему — подготовлю ответы именно под неё.`;
+  }
+
+  if (/(цель|задач|гипотез|объект|предмет)/.test(text)) {
+    return `Я цифровой помощник Матрены Семеновны. Для исследовательской работы используйте формулу:\n\n• Цель — один итог: «изучить / определить / выяснить…».\n• Задачи — 3–5 шагов к цели: изучить источники, провести опрос/эксперимент, обработать данные, сделать выводы.\n• Гипотеза — проверяемое предположение: «если…, то…».\n• Объект — что изучаем в целом.\n• Предмет — какое свойство или сторону объекта изучаем.\n• Методы — наблюдение, опрос, эксперимент, сравнение, анализ данных.\n\nНапишите тему проекта — сформулирую всё под неё.`;
+  }
+
+  if (/родител/.test(text)) {
+    return `Я цифровой помощник Матрены Семеновны. Для поддержки одарённого ребёнка важно не увеличивать количество занятий бесконечно, а выстроить маршрут: интерес → цель → диагностика → регулярная практика → разбор ошибок → участие в подходящем конкурсе или олимпиаде.\n\nНачните с трёх вопросов ребёнку: что ему действительно интересно, какие задачи он любит и какой результат хотел бы получить. После этого можно выбрать направление подготовки.`;
+  }
+
+  return `Я цифровой помощник Матрены Семеновны. Могу помочь с четырьмя основными задачами:\n\n1. Подобрать тему для НПК или проекта.\n2. Составить план подготовки к олимпиаде.\n3. Оформить цель, задачи, гипотезу и методы исследования.\n4. Подготовить речь и возможные вопросы жюри.\n\nНапишите класс ученика, предмет или интерес и что нужно получить — я соберу пошаговый вариант.`;
 }
 
 app.get("/health", (req, res) => {
   res.json({
     ok: true,
-    provider: "openrouter",
-    model: MODEL,
-    hasOpenRouterKey: Boolean(process.env.OPENROUTER_API_KEY),
-    baseUrl: OPENROUTER_BASE_URL,
-    siteUrlIsValid: process.env.OPENROUTER_SITE_URL ? isValidHttpUrl(process.env.OPENROUTER_SITE_URL) : null,
-    appNameSafe: toSafeHeaderValue(process.env.OPENROUTER_APP_NAME || "Uchitelskaya 2.0 Digital Double")
+    provider: "hybrid",
+    primaryModel: PRIMARY_MODEL,
+    fallbackModel: FALLBACK_MODEL,
+    localFallback: true,
+    hasKey: Boolean(process.env.OPENROUTER_API_KEY)
   });
 });
 
 app.post("/chat", async (req, res) => {
+  const message = String(req.body?.message || "").trim();
+  if (!message) return res.status(400).json({ error: "Пустое сообщение." });
+
+  const localReply = () => res.json({ reply: localFallbackReply(message), mode: "local-fallback" });
+
+  if (!process.env.OPENROUTER_API_KEY) return localReply();
+
   try {
-    if (!process.env.OPENROUTER_API_KEY) {
-      res.status(500).json({
-        error: "На сервере не задана переменная OPENROUTER_API_KEY. Добавьте ключ в Render → Environment."
-      });
-      return;
-    }
-
-    const message = String(req.body?.message || "").trim();
     const history = normalizeHistory(req.body?.history);
+    const messages = [
+      { role: "system", content: SYSTEM_PROMPT },
+      ...history,
+      { role: "user", content: message }
+    ];
 
-    if (!message) {
-      res.status(400).json({ error: "Пустое сообщение." });
-      return;
+    let usedModel = PRIMARY_MODEL;
+    let result = await callModel(PRIMARY_MODEL, messages);
+
+    if (!result.response.ok && [429, 402, 502, 503].includes(result.response.status) && PRIMARY_MODEL !== FALLBACK_MODEL) {
+      usedModel = FALLBACK_MODEL;
+      result = await callModel(FALLBACK_MODEL, messages);
     }
 
-    const response = await fetch(`${OPENROUTER_BASE_URL}/chat/completions`, {
-      method: "POST",
-      headers: buildOpenRouterHeaders(),
-      body: JSON.stringify({
-        model: MODEL,
-        messages: [
-          { role: "system", content: SYSTEM_PROMPT },
-          ...history,
-          { role: "user", content: message }
-        ],
-        temperature: Number(process.env.TEMPERATURE || 0.7),
-        max_tokens: Number(process.env.MAX_TOKENS || 900),
-        stream: false
-      })
-    });
-
-    const data = await response.json().catch(() => ({}));
-
-    if (!response.ok) {
-      const openRouterMessage = data?.error?.message || data?.message || JSON.stringify(data).slice(0, 500);
-      const readable = explainOpenRouterStatus(response.status, openRouterMessage);
-      console.error("OpenRouter HTTP error:", response.status, data);
-      res.status(response.status).json({ error: readable, details: data?.error || data });
-      return;
+    if (!result.response.ok) {
+      console.warn("OpenRouter unavailable, switching to local fallback:", result.response.status, result.data);
+      return localReply();
     }
 
-    const reply = data?.choices?.[0]?.message?.content?.trim();
+    const reply = result.data?.choices?.[0]?.message?.content?.trim();
+    if (!reply) return localReply();
 
-    res.json({
-      reply: reply || "Не удалось получить ответ от модели. Попробуйте ещё раз."
-    });
+    return res.json({ reply, model: usedModel, mode: "openrouter" });
   } catch (error) {
-    console.error("Server/OpenRouter connection error:", error);
-    res.status(500).json({
-      error: `Ошибка соединения с OpenRouter: ${error.message || "неизвестная ошибка"}. Проверьте переменные OPENROUTER_SITE_URL и OPENROUTER_APP_NAME: лучше использовать латиницу.`
-    });
+    console.warn("OpenRouter connection failed, switching to local fallback:", error?.message || error);
+    return localReply();
   }
 });
 
 app.listen(PORT, () => {
-  console.log(`OpenRouter digital double server started on port ${PORT}`);
-  console.log(`Model: ${MODEL}`);
+  console.log(`Matrena hybrid assistant started on port ${PORT}`);
+  console.log(`Primary model: ${PRIMARY_MODEL}`);
+  console.log("Local fallback: enabled");
 });
