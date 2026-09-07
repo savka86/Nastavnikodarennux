@@ -6,9 +6,8 @@ dotenv.config();
 
 const app = express();
 const PORT = process.env.PORT || 10000;
-const OPENROUTER_BASE_URL = process.env.OPENROUTER_BASE_URL || "https://openrouter.ai/api/v1";
-const PRIMARY_MODEL = process.env.OPENROUTER_MODEL || "openrouter/free";
-const FALLBACK_MODEL = "openrouter/free";
+const DEEPSEEK_BASE_URL = process.env.DEEPSEEK_BASE_URL || "https://api.deepseek.com";
+const MODEL = process.env.DEEPSEEK_MODEL || "deepseek-v4-flash";
 const MAX_HISTORY_MESSAGES = Number(process.env.MAX_HISTORY_MESSAGES || 10);
 const MAX_TOKENS = Number(process.env.MAX_TOKENS || 700);
 const TEMPERATURE = Number(process.env.TEMPERATURE || 0.6);
@@ -20,11 +19,20 @@ app.use(express.static("public"));
 const SYSTEM_PROMPT = `
 Ты — цифровой помощник Сидоровой Матрены Семеновны, наставника одарённых учащихся.
 Ты помогаешь ученикам, родителям и педагогам по вопросам олимпиад, конкурсов, НПК, исследовательских и проектных работ.
+
 Всегда ясно говори, что ты цифровой помощник, а не сама Матрена Семеновна.
 Отвечай по-русски, доброжелательно, понятно и по делу.
 Если данных мало — задай 2–4 коротких уточняющих вопроса.
 Не придумывай расписание, контакты, достижения или личные данные.
 Не обещай гарантированную победу и не выдавай готовые ответы для текущих экзаменов или олимпиад.
+
+Ты умеешь:
+— составлять план подготовки к олимпиаде;
+— предлагать темы для НПК и проектов;
+— формулировать цель, задачи, гипотезу, объект, предмет и методы;
+— помогать с речью защиты и вопросами жюри;
+— разбирать типичные ошибки;
+— предлагать тренировочные задания и пошаговый маршрут работы.
 `.trim();
 
 function normalizeHistory(history) {
@@ -38,34 +46,27 @@ function normalizeHistory(history) {
     .slice(-MAX_HISTORY_MESSAGES);
 }
 
-function buildHeaders() {
-  const headers = {
-    Authorization: `Bearer ${process.env.OPENROUTER_API_KEY || ""}`,
-    "Content-Type": "application/json",
-    "X-OpenRouter-Title": "Matrena AI Assistant"
-  };
-  const siteUrl = process.env.OPENROUTER_SITE_URL;
-  if (siteUrl && /^https?:\/\//i.test(siteUrl)) headers["HTTP-Referer"] = siteUrl;
-  return headers;
-}
-
-async function callModel(model, messages) {
+async function callDeepSeek(messages) {
   const controller = new AbortController();
-  const timeout = setTimeout(() => controller.abort(), 12000);
+  const timeout = setTimeout(() => controller.abort(), 15000);
   try {
-    const response = await fetch(`${OPENROUTER_BASE_URL}/chat/completions`, {
+    const response = await fetch(`${DEEPSEEK_BASE_URL}/chat/completions`, {
       method: "POST",
-      headers: buildHeaders(),
       signal: controller.signal,
+      headers: {
+        Authorization: `Bearer ${process.env.DEEPSEEK_API_KEY || ""}`,
+        "Content-Type": "application/json"
+      },
       body: JSON.stringify({
-        model,
+        model: MODEL,
         messages,
+        thinking: { type: "disabled" },
         temperature: TEMPERATURE,
         max_tokens: MAX_TOKENS,
-        stream: false,
-        provider: { allow_fallbacks: true }
+        stream: false
       })
     });
+
     const data = await response.json().catch(() => ({}));
     return { response, data };
   } finally {
@@ -83,40 +84,35 @@ function localFallbackReply(message) {
   const grade = extractGrade(message);
 
   if (/тема|темы|нпк|проект/.test(text) && /(выб|предлож|придум|иде)/.test(text)) {
-    return `Я цифровой помощник Матрены Семеновны. Предлагаю 6 реальных тем для ${grade}:\n\n1. «Как цифровые привычки влияют на учебную концентрацию школьников».\n2. «Какие местные растения лучше всего подходят для школьного мини-гербария и почему».\n3. «Как меняется качество сна у школьников в зависимости от экранного времени».\n4. «История моего села в семейных фотографиях и воспоминаниях».\n5. «Можно ли уменьшить количество бытовых отходов в классе за одну неделю».\n6. «Какие способы запоминания слов работают лучше: карточки, рисунки или ассоциации».\n\nДля НПК лучше выбрать тему, где можно собрать собственные данные: опрос, наблюдение, небольшой эксперимент или интервью. Напишите интересы ученика — я сузю список до 3 сильных тем.`;
+    return `Я цифровой помощник Матрены Семеновны. Предлагаю 6 реальных тем для ${grade}:\n\n1. «Как цифровые привычки влияют на учебную концентрацию школьников».\n2. «Какие местные растения лучше всего подходят для школьного мини-гербария и почему».\n3. «Как меняется качество сна у школьников в зависимости от экранного времени».\n4. «История моего села в семейных фотографиях и воспоминаниях».\n5. «Можно ли уменьшить количество бытовых отходов в классе за одну неделю».\n6. «Какие способы запоминания слов работают лучше: карточки, рисунки или ассоциации».\n\nДля НПК лучше выбирать тему, где ученик может собрать собственные данные: опрос, наблюдение, небольшой эксперимент или интервью. Напишите интересы ученика — я сузю список до 3 тем.`;
   }
 
   if (/олимпиад/.test(text) && /(план|подготов|готов)/.test(text)) {
-    return `Я цифровой помощник Матрены Семеновны. Базовый план подготовки к олимпиаде:\n\n1. Определить предмет, класс и этап олимпиады.\n2. Решить 1 диагностический вариант без подсказок.\n3. Разделить ошибки на темы.\n4. Выбрать 2–3 слабых блока и повторить теорию.\n5. Ежедневно решать 3–5 задач повышенной сложности.\n6. Вести журнал ошибок: задача → ошибка → правильный ход.\n7. Раз в неделю проходить тренировочный вариант на время.\n8. За 2–3 дня до участия снизить нагрузку и повторить типовые приёмы.\n\nНапишите предмет и класс — составлю конкретный план на неделю или месяц.`;
+    return `Я цифровой помощник Матрены Семеновны. Базовый план подготовки к олимпиаде:\n\n1. Определить предмет, класс и этап.\n2. Решить диагностический вариант.\n3. Разделить ошибки по темам.\n4. Повторить 2–3 слабых блока.\n5. Ежедневно решать задачи повышенной сложности.\n6. Вести журнал ошибок.\n7. Раз в неделю проходить вариант на время.\n8. Перед олимпиадой повторить типовые приёмы и снизить нагрузку.\n\nНапишите предмет и класс — составлю конкретный план.`;
   }
 
   if (/реч|защит|выступ/.test(text)) {
-    return `Я цифровой помощник Матрены Семеновны. Каркас сильной речи для защиты:\n\n«Здравствуйте. Тема моей работы — … Я выбрал её, потому что … Цель работы — … Для достижения цели я поставил задачи: … В ходе работы использовал методы: … Главный результат — … Практическая польза моей работы заключается в … Спасибо за внимание, готов ответить на вопросы».\n\nОптимальная структура: проблема → цель → 3–4 задачи → что сделал → главный результат → польза.\n\nПришлите тему проекта — я превращу этот каркас в готовую речь на 2–3 минуты.`;
+    return `Я цифровой помощник Матрены Семеновны. Каркас речи для защиты:\n\n«Здравствуйте. Тема моей работы — … Я выбрал её, потому что … Цель работы — … Для достижения цели я поставил задачи: … В ходе работы использовал методы: … Главный результат — … Практическая польза моей работы заключается в … Спасибо за внимание, готов ответить на вопросы».\n\nПришлите тему проекта — я помогу адаптировать каркас.`;
   }
 
   if (/жюри|вопрос/.test(text)) {
-    return `Я цифровой помощник Матрены Семеновны. Вот 7 типичных вопросов жюри:\n\n1. Почему вы выбрали именно эту тему?\n2. В чём новизна вашей работы?\n3. Как вы проверяли гипотезу?\n4. Почему выбрали именно эти методы?\n5. Что оказалось самым трудным?\n6. Где можно применить результат на практике?\n7. Что бы вы изменили, если бы продолжили исследование?\n\nГлавное правило ответа: сначала короткий вывод, потом одно доказательство из своей работы. Напишите тему — подготовлю ответы именно под неё.`;
+    return `Я цифровой помощник Матрены Семеновны. 7 типичных вопросов жюри:\n\n1. Почему выбрана эта тема?\n2. В чём новизна работы?\n3. Как проверялась гипотеза?\n4. Почему выбраны именно эти методы?\n5. Что оказалось самым трудным?\n6. Где применим результат?\n7. Что бы вы изменили при продолжении исследования?\n\nНапишите тему — подготовлю варианты ответов.`;
   }
 
   if (/(цель|задач|гипотез|объект|предмет)/.test(text)) {
-    return `Я цифровой помощник Матрены Семеновны. Для исследовательской работы используйте формулу:\n\n• Цель — один итог: «изучить / определить / выяснить…».\n• Задачи — 3–5 шагов к цели: изучить источники, провести опрос/эксперимент, обработать данные, сделать выводы.\n• Гипотеза — проверяемое предположение: «если…, то…».\n• Объект — что изучаем в целом.\n• Предмет — какое свойство или сторону объекта изучаем.\n• Методы — наблюдение, опрос, эксперимент, сравнение, анализ данных.\n\nНапишите тему проекта — сформулирую всё под неё.`;
+    return `Я цифровой помощник Матрены Семеновны. Формула исследовательской работы:\n\n• Цель — один итог: «изучить / определить / выяснить…».\n• Задачи — 3–5 шагов к цели.\n• Гипотеза — проверяемое предположение: «если…, то…».\n• Объект — что изучаем в целом.\n• Предмет — конкретная сторона объекта.\n• Методы — наблюдение, опрос, эксперимент, сравнение, анализ данных.\n\nНапишите тему проекта — сформулирую всё под неё.`;
   }
 
-  if (/родител/.test(text)) {
-    return `Я цифровой помощник Матрены Семеновны. Для поддержки одарённого ребёнка важно не увеличивать количество занятий бесконечно, а выстроить маршрут: интерес → цель → диагностика → регулярная практика → разбор ошибок → участие в подходящем конкурсе или олимпиаде.\n\nНачните с трёх вопросов ребёнку: что ему действительно интересно, какие задачи он любит и какой результат хотел бы получить. После этого можно выбрать направление подготовки.`;
-  }
-
-  return `Я цифровой помощник Матрены Семеновны. Могу помочь с четырьмя основными задачами:\n\n1. Подобрать тему для НПК или проекта.\n2. Составить план подготовки к олимпиаде.\n3. Оформить цель, задачи, гипотезу и методы исследования.\n4. Подготовить речь и возможные вопросы жюри.\n\nНапишите класс ученика, предмет или интерес и что нужно получить — я соберу пошаговый вариант.`;
+  return `Я цифровой помощник Матрены Семеновны. Могу помочь:\n\n1. Подобрать тему для НПК или проекта.\n2. Составить план подготовки к олимпиаде.\n3. Оформить цель, задачи и гипотезу.\n4. Подготовить речь и вопросы жюри.\n\nНапишите класс, предмет или интерес ученика и желаемый результат.`;
 }
 
 app.get("/health", (req, res) => {
   res.json({
     ok: true,
-    provider: "hybrid",
-    primaryModel: PRIMARY_MODEL,
-    fallbackModel: FALLBACK_MODEL,
+    provider: "deepseek-direct",
+    model: MODEL,
     localFallback: true,
-    hasKey: Boolean(process.env.OPENROUTER_API_KEY)
+    hasDeepSeekKey: Boolean(process.env.DEEPSEEK_API_KEY)
   });
 });
 
@@ -125,8 +121,7 @@ app.post("/chat", async (req, res) => {
   if (!message) return res.status(400).json({ error: "Пустое сообщение." });
 
   const localReply = () => res.json({ reply: localFallbackReply(message), mode: "local-fallback" });
-
-  if (!process.env.OPENROUTER_API_KEY) return localReply();
+  if (!process.env.DEEPSEEK_API_KEY) return localReply();
 
   try {
     const history = normalizeHistory(req.body?.history);
@@ -136,31 +131,26 @@ app.post("/chat", async (req, res) => {
       { role: "user", content: message }
     ];
 
-    let usedModel = PRIMARY_MODEL;
-    let result = await callModel(PRIMARY_MODEL, messages);
+    const { response, data } = await callDeepSeek(messages);
 
-    if (!result.response.ok && [429, 402, 502, 503].includes(result.response.status) && PRIMARY_MODEL !== FALLBACK_MODEL) {
-      usedModel = FALLBACK_MODEL;
-      result = await callModel(FALLBACK_MODEL, messages);
-    }
-
-    if (!result.response.ok) {
-      console.warn("OpenRouter unavailable, switching to local fallback:", result.response.status, result.data);
+    if (!response.ok) {
+      console.warn("DeepSeek unavailable, switching to local fallback:", response.status, data);
       return localReply();
     }
 
-    const reply = result.data?.choices?.[0]?.message?.content?.trim();
+    const reply = data?.choices?.[0]?.message?.content?.trim();
     if (!reply) return localReply();
 
-    return res.json({ reply, model: usedModel, mode: "openrouter" });
+    return res.json({ reply, model: MODEL, mode: "deepseek" });
   } catch (error) {
-    console.warn("OpenRouter connection failed, switching to local fallback:", error?.message || error);
+    console.warn("DeepSeek connection failed, switching to local fallback:", error?.message || error);
     return localReply();
   }
 });
 
 app.listen(PORT, () => {
-  console.log(`Matrena hybrid assistant started on port ${PORT}`);
-  console.log(`Primary model: ${PRIMARY_MODEL}`);
+  console.log(`Matrena assistant started on port ${PORT}`);
+  console.log(`Provider: DeepSeek direct`);
+  console.log(`Model: ${MODEL}`);
   console.log("Local fallback: enabled");
 });
